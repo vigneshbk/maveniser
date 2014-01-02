@@ -26,12 +26,9 @@ import com.meterware.httpunit.WebResponse;
 
 public class LibtoMaven {
 
-	private static String NEXUS_URL = "https://repository.sonatype.org/service/local/data_index";
+	private static String NEXUS_URL;
 
-	private static String MAVEN_CENTRAL_URL = "http://search.maven.org/solrsearch/select?q=##&rows=2&wt=json";
-
-	private static String jarsPath = "/home/evigkum/data/vigneshbk/work/workspaces/Iman2.0/oryx-combined/oryx-backend/src/main/webapp/WEB-INF/lib";
-
+	private static String MAVEN_CENTRAL_URL; 
 	// private static String NEXUS_URL = "http://mavencentral.sonatype.com,"
 
 	private static String NEXUS_SEARCH_KEY = "sha1";
@@ -60,11 +57,12 @@ public class LibtoMaven {
 		} catch (IOException e) {
 			System.err.println("Missing properties config file");
 			System.exit(1);
-		}
+		} 
 		
-		
-		
+		NEXUS_URL = props.getProperty("NEXUS_URL","https://repository.sonatype.org/service/local/data_index");
 
+		MAVEN_CENTRAL_URL = props.getProperty("MAVEN_CENTRAL_URL","http://search.maven.org/solrsearch/select?q=##&rows=2&wt=json");
+		
 		String outputFormat = "maven.pomformat";
 		
 		if(args.length>1 &&  args[1]!=null && "ivy".equalsIgnoreCase(args[1]) )
@@ -76,7 +74,7 @@ public class LibtoMaven {
 
 		StringBuilder dependString = new StringBuilder("<dependencies>");
 
-		List<String> allJars = LibtoMaven.readAllJars(jarsPath);
+		List<String> allJars = LibtoMaven.readAllJars(jarsFolder);
 		
 		if( allJars.size()<1)
 		{
@@ -95,7 +93,7 @@ public class LibtoMaven {
 			dependString.append(formatter.format(new String[] { jarName,
 					jarName, jarName }));
 			dependString.append("\n");
-			JarDescriptor desc = LibtoMaven.resolveMaveDescriptor(allJars
+			JarDescriptor desc = LibtoMaven.resolveMaveDescriptor(jarsFolder, allJars
 					.get(i));
 
 			if (desc != null) {
@@ -132,12 +130,12 @@ public class LibtoMaven {
 
 	}
 
-	private static JarDescriptor resolveMaveDescriptor(String jarPath) {
+	private static JarDescriptor resolveMaveDescriptor(String baseaFolder, String jarFileName) {
 		JarDescriptor descriptor = null;
 
 		// First try to resolve the Jar using HASH in nexus repo
 		try {
-			String shaHash = LibtoMaven.getSHA1(jarsPath + jarPath);
+			String shaHash = LibtoMaven.getSHA1(baseaFolder + jarFileName);
 
 			String xmlResp = LibtoMaven.lookUpNexus(shaHash);
 
@@ -147,10 +145,10 @@ public class LibtoMaven {
 		}
 
 		try {
-			// If nexus lookup failed to a REST Call to Maven central and try
+			// If Nexus lookup failed to a REST Call to Maven central and try
 			// to resolve the maven artifact
 			if (descriptor == null) {
-				descriptor = lookUpMavenCentral(jarPath);
+				descriptor = lookUpMavenCentral(jarFileName);
 			}
 		} catch (Exception ignore) {
 		}
