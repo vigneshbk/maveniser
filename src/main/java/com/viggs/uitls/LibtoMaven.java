@@ -1,6 +1,5 @@
 package com.viggs.uitls;
 
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -28,101 +27,144 @@ import com.meterware.httpunit.WebResponse;
 public class LibtoMaven {
 
 	private static String NEXUS_URL = "https://repository.sonatype.org/service/local/data_index";
-	
+
 	private static String MAVEN_CENTRAL_URL = "http://search.maven.org/solrsearch/select?q=##&rows=2&wt=json";
-	
+
 	private static String jarsPath = "/home/evigkum/data/vigneshbk/work/workspaces/Iman2.0/oryx-combined/oryx-backend/src/main/webapp/WEB-INF/lib";
-	
-	//private static String NEXUS_URL = "http://mavencentral.sonatype.com,"
+
+	// private static String NEXUS_URL = "http://mavencentral.sonatype.com,"
 
 	private static String NEXUS_SEARCH_KEY = "sha1";
 
-	public static void main(String[] args)throws Exception { 
+	private static Properties props = new Properties();
+
+	public static void main(String[] args) {
+
+		if (args == null || args.length < 1) {
+			System.out
+					.println("Usage  LibtoMaven <<path to libs folder >>  <<mvn/ivy format output>> -DisProxied=false");
+			System.exit(1);
+		}
+		String jarsFolder = args[0];
 		
-		Properties props = new Properties();
-		props.load(LibtoMaven.class.getClassLoader().getResourceAsStream("com/vig/labs/jareader/message.properties"));
+		if( !new File(jarsFolder).exists() ||  !new File(jarsFolder).isDirectory())
+		{
+			System.out.println("Lib folder path is not valid or is empty");
+			System.exit(1);
+		}
 		
-		System.out.println(" Key -- > maven.pomformat Value --> "+props.getProperty("maven.pomformat"));
 		
-		MessageFormat formatter = new MessageFormat(props.getProperty("maven.sys.pomformat"));
+		try {
+			props.load(LibtoMaven.class.getClassLoader().getResourceAsStream(
+					"config.properties"));
+		} catch (IOException e) {
+			System.err.println("Missing properties config file");
+			System.exit(1);
+		}
 		
 		
-		//System.out.println(" Dependency out --> "+formatter.format(new String[]{"org.apache.activemq","activemq-all","5.20"}));
+		
+
+		String outputFormat = "maven.pomformat";
+		
+		if(args.length>1 &&  args[1]!=null && "ivy".equalsIgnoreCase(args[1]) )
+		{
+			outputFormat = "ivy.pomformat";
+		}
+		
+		MessageFormat formatter = new MessageFormat(props.getProperty(outputFormat));
 
 		StringBuilder dependString = new StringBuilder("<dependencies>");
+
 		List<String> allJars = LibtoMaven.readAllJars(jarsPath);
 		
+		if( allJars.size()<1)
+		{
+			System.out.println("Lib folder path is not is empty no jars present");
+			System.exit(1);
+		}
+
 		Collections.sort(allJars);
 
 		StringBuilder unresolved = new StringBuilder();
-		
-		for (int i = 0; i < allJars.size(); i++) 
-		{
+		int unresolvedCount = 0;
+
+		for (int i = 0; i < allJars.size(); i++) {
 			String jarName = allJars.get(i);
-			
-			dependString.append(formatter.format(new String[]{jarName,jarName,jarName}));
+
+			dependString.append(formatter.format(new String[] { jarName,
+					jarName, jarName }));
 			dependString.append("\n");
-			/*JarDescriptor desc = LibtoMaven.resolveMaveDescriptor(allJars.get(i));
-			
-			if(desc!=null)
-			{
-				//System.out.println(allJars.get(i)+ " --> "+desc);
-				dependString.append(formatter.format(new String[]{desc.getGroupId(),desc.getArtifactId(),desc.getVersion()}));
+			JarDescriptor desc = LibtoMaven.resolveMaveDescriptor(allJars
+					.get(i));
+
+			if (desc != null) {
+				// System.out.println(allJars.get(i)+ " --> "+desc);
+				dependString.append(formatter.format(new String[] {
+						desc.getGroupId(), desc.getArtifactId(),
+						desc.getVersion() }));
 				dependString.append("\n");
-				
-			}
-			else
+
+			} else{
 				unresolved.append(allJars.get(i)).append("\n");
-				//System.out.println(allJars.get(i)+ " --> unresolved");
-*/			
+				unresolvedCount++;
+			}
+				
+
 		}
-		
+
 		dependString.append("</dependencies>");
-		
+
+		System.out
+				.println("--------------------------------------------------------------------");
+
 		System.out.println(dependString);
+
+		System.out
+				.println("--------------------------------------------------------------------");
+
+		System.out.println("Unresolved Jar names \n" + unresolved.toString());
+
+		System.out
+				.println("--------------------------------------------------------------------");
 		
-		
-		System.out.println("Unresolved \n"+unresolved.toString());
+		System.out.println("Summary : Total Jar files resolved : " + (allJars.size()-unresolvedCount) +" Total unresolved : " + unresolvedCount);
 
 	}
 
 	private static JarDescriptor resolveMaveDescriptor(String jarPath) {
 		JarDescriptor descriptor = null;
+
+		// First try to resolve the Jar using HASH in nexus repo
 		try {
 			String shaHash = LibtoMaven.getSHA1(jarsPath + jarPath);
 
 			String xmlResp = LibtoMaven.lookUpNexus(shaHash);
 
 			descriptor = LibtoMaven.decodeDescriptor(xmlResp);
-			if(descriptor==null)
-			{
+
+		} catch (Exception ignore) {
+		}
+
+		try {
+			// If nexus lookup failed to a REST Call to Maven central and try
+			// to resolve the maven artifact
+			if (descriptor == null) {
 				descriptor = lookUpMavenCentral(jarPath);
 			}
-			
-
-		} catch (Exception e) {
-			return null;
+		} catch (Exception ignore) {
 		}
 
 		return descriptor;
 	}
 
-	public static String getSHA1(String jarName) {
+	public static String getSHA1(String jarName) throws Exception {
 		String sha = null;
 
-		try {
-			InputStream is = new FileInputStream(new File(jarName));
-			byte resultBytez[] = DigestUtils.sha(IOUtils.toByteArray(is));
+		InputStream is = new FileInputStream(new File(jarName));
+		byte resultBytez[] = DigestUtils.sha(IOUtils.toByteArray(is));
 
-			sha = new String(Hex.encodeHex(resultBytez));
-
-		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+		sha = new String(Hex.encodeHex(resultBytez));
 
 		return sha;
 
@@ -147,12 +189,9 @@ public class LibtoMaven {
 		for (int i = 0; i < baseFolder.listFiles().length; i++) {
 			File temp = baseFolder.listFiles()[i];
 
-			if(temp.getName().endsWith(".jar"))
-			{	
-				System.out.println(temp.getName());
+			if (temp.getName().endsWith(".jar")) {
 				jarList.add(temp.getName());
 			}
-
 
 		}
 
@@ -162,9 +201,10 @@ public class LibtoMaven {
 	private static String lookUpNexus(String shaHash) throws Exception {
 
 		URL serverUrl = new URL(NEXUS_URL);
+
 		WebConversation conversation = new WebConversation();
-		
-		conversation.setProxyServer("www-proxy.ericsson.se", 8080);
+
+		applyWebProxy(conversation);
 
 		WebRequest request = new GetMethodWebRequest(serverUrl, "");
 
@@ -172,8 +212,8 @@ public class LibtoMaven {
 
 		request.setParameter(NEXUS_SEARCH_KEY, shaHash);
 
-		WebResponse response = conversation.getResponse(request); 
-		 
+		WebResponse response = conversation.getResponse(request);
+
 		return ((response != null && response.getResponseCode() == 200) ? response
 				.getText() : null);
 	}
@@ -204,40 +244,36 @@ public class LibtoMaven {
 				jardesc.setVersion((String) firstArtifcat.get("version"));
 				jardesc.setJarname(jardesc.getArtifactId());
 			}
-		} 
+		}
 		return jardesc;
 	}
-	
-	public static JarDescriptor lookUpMavenCentral(String jarname) throws Exception {
 
-		System.out.println("trying the lookUpMavenCentral alternative");
-		
+	public static JarDescriptor lookUpMavenCentral(String jarname)
+			throws Exception {
+
 		WebConversation conversation = new WebConversation();
-		
-		conversation.setProxyServer("www-proxy.ericsson.se", 8080);
 
-		WebRequest request = new GetMethodWebRequest(MAVEN_CENTRAL_URL.replaceAll("##", jarname));
+		applyWebProxy(conversation);
+
+		WebRequest request = new GetMethodWebRequest(
+				MAVEN_CENTRAL_URL.replaceAll("##", jarname));
 
 		request.setHeaderField("accept", "application/json");
- 
+
 		WebResponse response = conversation.getResponse(request);
 
 		JarDescriptor jardesc = null;
-		
-		if(response != null && response.getResponseCode() == 200)
-		{ 
-			System.out.println("response.getResponseCode() : "+response.getResponseCode());
-			
-			System.out.println("response.getText() : "+response.getText());
-			
+
+		if (response != null && response.getResponseCode() == 200) {
+
 			JSONParser parser = new JSONParser();
 
 			Object obj = parser.parse(response.getText());
 
-			JSONObject jsonObj = (JSONObject) obj; 
-			
-			
-			JSONArray artifacts = ((JSONArray)((JSONObject)jsonObj.get("response")).get("docs"));
+			JSONObject jsonObj = (JSONObject) obj;
+
+			JSONArray artifacts = ((JSONArray) ((JSONObject) jsonObj
+					.get("response")).get("docs"));
 
 			if (artifacts != null && artifacts.size() > 0) {
 
@@ -249,15 +285,37 @@ public class LibtoMaven {
 					jardesc = new JarDescriptor();
 					jardesc.setArtifactId((String) firstArtifcat.get("a"));
 					jardesc.setGroupId((String) firstArtifcat.get("g"));
-					jardesc.setVersion((String) firstArtifcat.get("latestVersion"));
+					jardesc.setVersion((String) firstArtifcat
+							.get("latestVersion"));
 					jardesc.setJarname(jardesc.getArtifactId());
 				}
 			}
 		}
-		
+
 		return jardesc;
 	}
 
+	private static void applyWebProxy(WebConversation conversation) {
+		boolean isProxyEnable = System.getProperty("isProxied") != null;
+		if (isProxyEnable) {
+
+			String proxyHost = props.getProperty("proxy-url");
+
+			String proxyPort = props.getProperty("proxy-port", "8080");
+
+			String proxyUser = props.getProperty("proxy-user");
+
+			int port = Integer.parseInt(proxyPort);
+
+			if (proxyUser != null && proxyUser.trim().length() > 0) {
+				conversation.setProxyServer(proxyHost, port, proxyUser,
+						props.getProperty("proxy-pass"));
+			} else {
+				conversation.setProxyServer(proxyHost, port);
+			}
+		}
+
+	}
 
 	public static class JarDescriptor {
 
